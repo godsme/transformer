@@ -1,23 +1,18 @@
 
+import tensorflow as tf
+from modules import *
+from hyperparams import Hyperparams as hp
 
 def mk_encoder(x, embedding, is_training):
-    with tf.variable_scope("encoder"):
-        enc = pretrain_embed(x, embedding, trainable=True, scale=True)
+    enc = pretrain_embed(x, embedding, trainable=True, scale=True)
 
+    with tf.variable_scope("encoder"):
         ## Positional Encoding
-        if hp.sinusoid:
-            enc += positional_encoding(x,
+        enc += positional_encoding(x,
                               num_units=hp.hidden_units,
                               zero_pad=False,
                               scale=False,
                               scope="enc_pe")
-        else:
-            enc += embedding(tf.tile(tf.expand_dims(tf.range(tf.shape(x)[1]), 0), [tf.shape(x)[0], 1]),
-                             vocab_size=hp.maxlen,
-                             num_units=hp.hidden_units,
-                             zero_pad=False,
-                             scale=False,
-                             scope="enc_pe")
 
 
         ## Dropout
@@ -44,18 +39,11 @@ def mk_encoder(x, embedding, is_training):
 
 
 def mk_decoder(y, enc, embedding, is_training):
+    dec = pretrain_embed(y, embedding, trainable=True, scale=True)
+
     with tf.variable_scope("decoder"):
-        dec = pretrain_embed(y, embedding, trainable=True, scale=True)
         ## Positional Encoding
-        if hp.sinusoid:
-            dec += positional_encoding(y,
-                              vocab_size=hp.maxlen,
-                              num_units=hp.hidden_units,
-                              zero_pad=False,
-                              scale=False,
-                              scope="dec_pe")
-        else:
-            dec += embedding(tf.tile(tf.expand_dims(tf.range(tf.shape(y)[1]), 0), [tf.shape(y)[0], 1]),
+        dec += positional_encoding(y,
                               vocab_size=hp.maxlen,
                               num_units=hp.hidden_units,
                               zero_pad=False,

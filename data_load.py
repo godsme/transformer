@@ -1,93 +1,170 @@
-# -*- coding: utf-8 -*-
-#/usr/bin/python2
+
 '''
-June 2017 by kyubyong park. 
-kbpark.linguist@gmail.com.
-https://www.github.com/kyubyong/transformer
+Data loading.
+Note:
+Nine key pinyin keyboard layout sample:
+
+`      ABC   DEF
+GHI    JKL   MNO
+POQRS  TUV   WXYZ
+
 '''
 from __future__ import print_function
 from hyperparams import Hyperparams as hp
-import tensorflow as tf
-import numpy as np
 import codecs
-import regex
+import numpy as np
+import re
+import glob
+import tensorflow as tf
+import random
 
-def load_de_vocab():
-    vocab = [line.split()[0] for line in codecs.open('preprocessed/de.vocab.tsv', 'r', 'utf-8').read().splitlines() if int(line.split()[1])>=hp.min_cnt]
-    word2idx = {word: idx for idx, word in enumerate(vocab)}
-    idx2word = {idx: word for idx, word in enumerate(vocab)}
-    return word2idx, idx2word
+def load_vocab():
+    import pickle
+    hz_2_i, i_2_hz = pickle.load(open('../dicts/hz-vocab.pkl', 'rb'))
+    py_2_i, i_2_py = pickle.load(open('../dicts/py-vocab.pkl', 'rb'))
 
-def load_en_vocab():
-    vocab = [line.split()[0] for line in codecs.open('preprocessed/en.vocab.tsv', 'r', 'utf-8').read().splitlines() if int(line.split()[1])>=hp.min_cnt]
-    word2idx = {word: idx for idx, word in enumerate(vocab)}
-    idx2word = {idx: word for idx, word in enumerate(vocab)}
-    return word2idx, idx2word
+    return py_2_i, i_2_py, hz_2_i, i_2_hz
 
-def create_data(source_sents, target_sents): 
-    de2idx, idx2de = load_de_vocab()
-    en2idx, idx2en = load_en_vocab()
-    
-    # Index
-    x_list, y_list, Sources, Targets = [], [], [], []
-    for source_sent, target_sent in zip(source_sents, target_sents):
-        x = [de2idx.get(word, 1) for word in (source_sent + u" </S>").split()] # 1: OOV, </S>: End of Text
-        y = [en2idx.get(word, 1) for word in (target_sent + u" </S>").split()] 
-        if max(len(x), len(y)) <=hp.maxlen:
-            x_list.append(np.array(x))
-            y_list.append(np.array(y))
-            Sources.append(source_sent)
-            Targets.append(target_sent)
-    
-    # Pad      
-    X = np.zeros([len(x_list), hp.maxlen], np.int32)
-    Y = np.zeros([len(y_list), hp.maxlen], np.int32)
-    for i, (x, y) in enumerate(zip(x_list, y_list)):
-        X[i] = np.lib.pad(x, [0, hp.maxlen-len(x)], 'constant', constant_values=(0, 0))
-        Y[i] = np.lib.pad(y, [0, hp.maxlen-len(y)], 'constant', constant_values=(0, 0))
-    
-    return X, Y, Sources, Targets
+def load_vocab_json():
+    import json
+    hz_2_i, i_2_hz = json.load(open('../dicts/hz-vocab.json', 'r'))
+    py_2_i, i_2_py = json.load(open('../dicts/py-vocab.json', 'r'))
 
-def load_train_data():
-    de_sents = [regex.sub("[^\s\p{Latin}']", "", line) for line in codecs.open(hp.source_train, 'r', 'utf-8').read().split("\n") if line and line[0] != "<"]
-    en_sents = [regex.sub("[^\s\p{Latin}']", "", line) for line in codecs.open(hp.target_train, 'r', 'utf-8').read().split("\n") if line and line[0] != "<"]
-    
-    X, Y, Sources, Targets = create_data(de_sents, en_sents)
-    return X, Y
-    
-def load_test_data():
-    def _refine(line):
-        line = regex.sub("<[^>]+>", "", line)
-        line = regex.sub("[^\s\p{Latin}']", "", line) 
-        return line.strip()
-    
-    de_sents = [_refine(line) for line in codecs.open(hp.source_test, 'r', 'utf-8').read().split("\n") if line and line[:4] == "<seg"]
-    en_sents = [_refine(line) for line in codecs.open(hp.target_test, 'r', 'utf-8').read().split("\n") if line and line[:4] == "<seg"]
-        
-    X, Y, Sources, Targets = create_data(de_sents, en_sents)
-    return X, Sources, Targets # (1064, 150)
+    return py_2_i, i_2_py, hz_2_i, i_2_hz
 
-def get_batch_data():
-    # Load data
-    X, Y = load_train_data()
-    
-    # calc total batch count
-    num_batch = len(X) // hp.batch_size
-    
-    # Convert to tensor
-    X = tf.convert_to_tensor(X, tf.int32)
-    Y = tf.convert_to_tensor(Y, tf.int32)
-    
-    # Create Queues
-    input_queues = tf.train.slice_input_producer([X, Y])
-            
-    # create batch queues
-    x, y = tf.train.shuffle_batch(input_queues,
-                                num_threads=8,
-                                batch_size=hp.batch_size, 
-                                capacity=hp.batch_size*64,   
-                                min_after_dequeue=hp.batch_size*32, 
-                                allow_smaller_final_batch=False)
-    
-    return x, y, num_batch # (N, T), (N, T), ()
+def load_embeddings():
+    import json
+    _, _, embeddings = json.load(open('../dicts/w2v.json', 'r'))
+    return embeddings
 
+def load_w2v():
+    import json
+    w2i, i2w, _ = json.load(open('../dicts/w2v.json', 'r'))
+    return w2i, i2w
+
+
+train_data_files = []
+train_data_files += glob.glob("../data/simplify/train/train.*.tfrecords")
+
+test_data_files = []
+#test_data_files += glob.glob("../data/all/test/train.*.tfrecords")
+#test_data_files += glob.glob("../data/gudian/test/train.*.tfrecords")
+test_data_files += glob.glob("../data/simplify/test/train.*.tfrecords")
+#test_data_files += glob.glob("../data/lishi/test/train.*.tfrecords")
+#test_data_files += glob.glob("../data/wuxia/test/train.*.tfrecords")
+#test_data_files += glob.glob("../data/qingchun/test/train.*.tfrecords")
+############################################################
+def parse(example, start_index, eof_index):
+   features = tf.parse_single_example(example,
+                                   features = {
+                                       'x' : tf.FixedLenFeature([], tf.string),
+                                       'y' : tf.FixedLenFeature([], tf.string)
+                                   })
+
+   x =  tf.decode_raw(features['x'], tf.int32)
+   y =  tf.decode_raw(features['y'], tf.int32)
+
+   yhat = tf.concat([[start_index], y], axis=-1)
+   ylabel = tf.concat([y, [eof_index]], axis=-1)
+
+   return x, yhat, ylabel, tf.shape(yhat)
+
+############################################################
+def load_dataset(batch_size, start_index, eof_index):
+   random.shuffle(train_data_files)
+   dataset = tf.data.TFRecordDataset(train_data_files)
+   dataset = dataset.map(lambda x: parse(x, start_index, eof_index), num_parallel_calls=8).shuffle(2560)
+   dataset = dataset.padded_batch(batch_size, padded_shapes=([None], [None], [None], [1])).prefetch(4096).repeat()
+   return dataset
+
+def load_test_dataset(batch_size, start_index, eof_index):
+   dataset = tf.data.TFRecordDataset(test_data_files)
+   dataset = dataset.map(lambda x: parse(x, start_index, eof_index))
+   #dataset = dataset.filter(lambda a,b,c: tf.shape(a)[-1] > 5)
+   dataset = dataset.shuffle(1280)
+   dataset = dataset.padded_batch(batch_size, padded_shapes=([None], [None], [None], [1])).repeat()
+   return dataset
+
+from pypinyin import pinyin, Style
+import pypinyin
+
+def is_alpha(word):
+  try:
+    return word.encode('ascii').isalpha()
+  except:
+    return False
+
+#pinyin(c, style=Style.NORMAL)
+def transform_char(c):
+    if is_alpha(c):
+        return '@' + c.lower()
+    elif c.isspace():
+        return '@@'
+    else:
+        return c
+
+def trans(str):
+    return [transform_char(s) for s in str]
+
+def same_pinyin(w1, w2):
+    p1 = pinyin(w1, style=Style.NORMAL, heteronym=True, errors='ignore')
+    p2 = pinyin(w2, style=Style.NORMAL, heteronym=True, errors='ignore')
+    if len(p1) == 0 or len(p2) == 0:
+        return False
+
+    ret = list(set(p1[0]).intersection(set(p2[0])))
+
+    return True if len(ret) > 0 else False
+
+def to_pinyin(sentence):
+    sent = pinyin(sentence, style=Style.NORMAL, errors=trans)
+    result = []
+    for s in sent:
+        result += s
+
+    return " ".join(result)
+
+def load_test_string(w2idx, test_string):
+    '''Embeds and vectorize words in user input string'''
+    #print(pnyn_sent)
+    xs = []
+    #lens = []
+    x = [w2idx.get(w, 1) for w in test_string]
+    #x += [0] * (hp.maxlen - len(x))
+    xs.append(x)
+    #lens.append([len(x)])
+
+    X = np.array(xs, np.int32)
+    #L = np.array(lens, np.int32)
+
+    return X#, L
+
+
+# def get_batch():
+#     '''Makes batch queues from the training data.
+#     Returns:
+#       A Tuple of x (Tensor), y (Tensor).
+#       x and y have the shape [batch_size, maxlen].
+#     '''
+#     import tensorflow as tf
+#
+#     # Load data
+#     X, Y = load_train_data()
+#
+#     # Create Queues
+#     x, y = tf.train.slice_input_producer([tf.convert_to_tensor(X),
+#                                           tf.convert_to_tensor(Y)])
+#
+#     x = tf.decode_raw(x, tf.int32)
+#     y = tf.decode_raw(y, tf.int32)
+#
+#     x, y = tf.train.batch([x, y],
+#                           shapes=[(None,), (None,)],
+#                           num_threads=30,
+#                           batch_size=hp.batch_size,
+#                           capacity=hp.batch_size * 64,
+#                           allow_smaller_final_batch=False,
+#                           dynamic_pad=True)
+#     num_batch = len(X) // hp.batch_size
+#
+#     return x, y, num_batch  # (N, None) int32, (N, None) int32, ()

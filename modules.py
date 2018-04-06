@@ -8,13 +8,14 @@ https://www.github.com/kyubyong/transformer
 
 from __future__ import print_function
 import tensorflow as tf
+import numpy as np
 
 ###########################################################################
 def lookup(table, inputs, num_of_units, scale=True):
-    outputs = tf.nn.embedding_lookup(lookup_table, inputs)
+    outputs = tf.nn.embedding_lookup(table, inputs)
 
     if scale:
-        outputs = outputs * (num_units ** 0.5)
+        outputs = outputs * (num_of_units ** 0.5)
 
     return outputs
 
@@ -163,7 +164,11 @@ def positional_encoding(inputs,
         A 'Tensor' with one more rank than inputs's, with the dimensionality should be 'num_units'
     '''
 
-    N, T = inputs.get_shape().as_list()
+    a = tf.shape(inputs)
+    N = a[0]
+    T = a[1]
+
+    #N, T = inputs.get_shape().as_list()
     with tf.variable_scope(scope, reuse=reuse):
         position_ind = tf.tile(tf.expand_dims(tf.range(T), 0), [N, 1])
 
