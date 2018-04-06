@@ -166,7 +166,7 @@ def positional_encoding(inputs,
 
     a = tf.shape(inputs)
     N = a[0]
-    T = a[1]
+    T = hp.maxlen
 
     #N, T = inputs.get_shape().as_list()
     with tf.variable_scope(scope, reuse=reuse):
